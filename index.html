@@ -64,6 +64,11 @@ button{border-radius:999px;padding:11px 20px;font-weight:600;font-size:14px;curs
 button:hover{border-color:var(--lime);background:rgba(200,240,75,.08)}
 button.solid{background:var(--lime);color:#0A2013;border-color:var(--lime)}
 button.solid:hover{background:#E4FBA4}
+button.danger{border-color:rgba(224,134,75,.5);color:var(--clay)}
+button.danger:hover{background:rgba(224,134,75,.12);border-color:var(--clay)}
+button.tiny{padding:5px 12px;font-size:12px;border-radius:999px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.refresh{padding:8px 16px;font-size:13px}
 .msg{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--moss);margin-top:16px}
 .msg.err{color:var(--clay)}
 
@@ -94,6 +99,7 @@ footer{margin-top:60px;padding:26px 0 40px;border-top:1px solid var(--edge);
     <div class="bar">
       <div class="brand">Agro<span>Sense</span></div>
       <div class="pill"><span class="dot" id="dot"></span><span id="live">connecting</span></div>
+      <button class="refresh" id="btnLive" onclick="live(true)">Refresh now</button>
     </div>
 
     <h1>Your plot, reading <em>itself</em>.</h1>
@@ -160,6 +166,8 @@ footer{margin-top:60px;padding:26px 0 40px;border-top:1px solid var(--edge);
       <button onclick="quick(168)">Last 7 days</button>
       <button onclick="save('xlsx')">Download Excel</button>
       <button onclick="save('csv')">Download CSV</button>
+      <button class="danger" onclick="delWindow()">Delete this window</button>
+      <button class="danger" onclick="delAll()">Delete all data</button>
     </div>
 
     <div class="msg" id="msg"></div>
@@ -169,7 +177,7 @@ footer{margin-top:60px;padding:26px 0 40px;border-top:1px solid var(--edge);
     <table>
       <thead><tr>
         <th>#</th><th>Recorded</th><th>Lux</th><th>Temp °C</th><th>Hum %</th>
-        <th>Soil raw</th><th>Soil %</th><th>RSSI</th><th>Uptime s</th>
+        <th>Soil raw</th><th>Soil %</th><th>RSSI</th><th>Uptime s</th><th></th>
       </tr></thead>
       <tbody id="body"></tbody>
     </table>
@@ -204,10 +212,14 @@ function say(m, err) {
 }
 
 /* ---------- live ---------- */
-async function live() {
+async function live(manual) {
+  const btn = document.getElementById("btnLive");
+  if (manual) { btn.disabled = true; btn.textContent = "Refreshing…"; }
   try {
     const dev = document.getElementById("dev").value.trim();
-    const q = "readings?select=*&order=recorded_at.desc&limit=1"
+    // order by id.desc -> shob somoy SHESH row ta ashbe, ek e second e
+    // kayekta row thakleo. recorded_at diye order korle tie hote pare.
+    const q = "readings?select=*&order=id.desc&limit=1"
             + (dev ? "&device_id=eq." + encodeURIComponent(dev) : "");
     const d = (await get(q))[0];
     if (!d) { document.getElementById("live").textContent = "no readings yet"; return; }
@@ -234,6 +246,8 @@ async function live() {
   } catch (e) {
     document.getElementById("dot").className = "dot off";
     document.getElementById("live").textContent = "offline";
+  } finally {
+    if (manual) { btn.disabled = false; btn.textContent = "Refresh now"; }
   }
 }
 
@@ -251,7 +265,7 @@ async function load() {
   const to   = document.getElementById("to").value;
   const lim  = document.getElementById("lim").value;
 
-  let q = "readings?select=*&order=recorded_at.desc&limit=" + lim;
+  let q = "readings?select=*&order=id.desc&limit=" + lim;   // notun ta age
   if (dev)  q += "&device_id=eq." + encodeURIComponent(dev);
   if (from) q += "&recorded_at=gte." + encodeURIComponent(new Date(from).toISOString());
   if (to)   q += "&recorded_at=lte." + encodeURIComponent(new Date(to).toISOString());
@@ -268,14 +282,135 @@ async function load() {
         <td class="num">${n0(r.humidity)}</td><td class="num">${r.soil_raw ?? "—"}</td>
         <td class="num">${n1(r.soil_percent)}</td><td class="num">${r.rssi ?? "—"}</td>
         <td class="num">${r.uptime_s ?? "—"}</td>`;
+
+      const td = document.createElement("td");
+      const del = document.createElement("button");
+      del.className = "danger tiny"; del.textContent = "Delete";
+      del.onclick = () => delRow(r.id, del);
+      td.appendChild(del); tr.appendChild(td);
       b.appendChild(tr);
     });
     if (!rows.length)
-      b.innerHTML = `<tr><td colspan="9"><div class="empty"><strong>Nothing in this window</strong>
+      b.innerHTML = `<tr><td colspan="10"><div class="empty"><strong>Nothing in this window</strong>
         Widen the dates, or check the node is posting.</div></td></tr>`;
     say(rows.length + " readings loaded at " + new Date().toLocaleTimeString());
   } catch (e) {
     say("Could not load: " + e.message, true);
+  }
+}
+
+/* ---------- delete ---------- */
+// Supabase e DELETE policy na thakle 204 "success" ashe kintu 0 row mochey.
+// tai count=exact cheye niye ASHOLE koto ta mucheche ta check kori.
+async function sbDelete(q) {
+  const r = await fetch(URL_ + "/rest/v1/" + q, {
+    method: "DELETE",
+    headers: Object.assign({ Prefer: "count=exact" }, H)
+  });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(r.status + " " + txt);
+
+  const cr = r.headers.get("content-range");        // "*/3"
+  const n  = cr ? parseInt(cr.split("/")[1], 10) : NaN;
+  if (Number.isNaN(n)) return null;                 // header pai ni
+  if (n === 0) throw new Error("BLOCKED");          // policy nai
+  return n;
+}
+
+const BLOCK_MSG = "Nothing was deleted. Supabase is blocking it because the "
+  + "readings table has no delete policy. Run supabase_delete_addon.sql in the "
+  + "SQL Editor, then try again.";
+
+function delError(e) {
+  const m = String(e.message);
+  if (m === "BLOCKED" || m.startsWith("401") || m.startsWith("403") || m.includes("42501"))
+    return BLOCK_MSG;
+  return "Delete failed: " + m;
+}
+
+// ek ta row mucho
+async function delRow(id, btn) {
+  if (!confirm("Delete this reading permanently?")) return;
+  btn.disabled = true;
+  try {
+    await sbDelete("readings?id=eq." + id);
+    rows = rows.filter(r => r.id !== id);
+    btn.closest("tr").remove();
+    say("Deleted 1 reading. " + rows.length + " still loaded.");
+    live();
+  } catch (e) {
+    btn.disabled = false;
+    say(delError(e), true);
+  }
+}
+
+// screen e ja load kora ache, oi puro window mucho
+async function delWindow() {
+  if (!rows.length) { say("Load a window first, then delete it.", true); return; }
+
+  const dev  = document.getElementById("dev").value.trim();
+  const from = document.getElementById("from").value;
+  const to   = document.getElementById("to").value;
+
+  const answer = prompt(
+    "This deletes " + rows.length + " readings from Supabase and cannot be undone.\n" +
+    "Type DELETE to confirm.");
+  if (answer !== "DELETE") { say("Cancelled. Nothing was deleted."); return; }
+
+  let q = "readings?";
+  const f = [];
+  if (dev)  f.push("device_id=eq." + encodeURIComponent(dev));
+  if (from) f.push("recorded_at=gte." + encodeURIComponent(new Date(from).toISOString()));
+  if (to)   f.push("recorded_at=lte." + encodeURIComponent(new Date(to).toISOString()));
+  if (!f.length) {                       // filter chara delete kora bipojjonok
+    say("Set a node or a date range before deleting.", true);
+    return;
+  }
+  q += f.join("&");
+
+  say("Deleting…");
+  try {
+    const n = await sbDelete(q);
+    say("Deleted " + (n ?? rows.length) + " readings.");
+    rows = [];
+    load();
+    live();
+  } catch (e) {
+    say(delError(e), true);
+  }
+}
+
+// puro table khali kore dey (node select thakle sudhu oi node)
+async function delAll() {
+  const dev = document.getElementById("dev").value.trim();
+  const scope = dev ? "node " + dev : "EVERY node";
+
+  // age gune dekhai kototuku jacche
+  let total = "?";
+  try {
+    const q = "readings?select=id&limit=1" + (dev ? "&device_id=eq." + encodeURIComponent(dev) : "");
+    const r = await fetch(URL_ + "/rest/v1/" + q, { headers: Object.assign({ Prefer: "count=exact" }, H) });
+    total = (r.headers.get("content-range") || "/?").split("/")[1];
+  } catch (e) { /* count na pele o egiye jabo */ }
+
+  const answer = prompt(
+    "This deletes ALL " + total + " readings for " + scope + ".\n" +
+    "There is no undo and no backup.\n\n" +
+    "Download the data first if you still need it.\n" +
+    "Type DELETE ALL to confirm.");
+  if (answer !== "DELETE ALL") { say("Cancelled. Nothing was deleted."); return; }
+
+  say("Deleting everything…");
+  try {
+    // PostgREST filter chara delete nite chai na, tai id=gt.0 diye sob dhori
+    const q = "readings?" + (dev ? "device_id=eq." + encodeURIComponent(dev) : "id=gt.0");
+    const n = await sbDelete(q);
+    rows = [];
+    say("Deleted " + (n ?? total) + " readings for " + scope + ".");
+    load();
+    live();
+  } catch (e) {
+    say(delError(e), true);
   }
 }
 
