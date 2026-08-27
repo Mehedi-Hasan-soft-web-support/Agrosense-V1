@@ -1,0 +1,324 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgroSense — live field data</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+:root{
+  --field:#08170F; --canopy:#0E2418; --panel:#143020; --panel-2:#183A26;
+  --edge:#255336; --lime:#C8F04B; --cream:#EDF4E2; --moss:#8CA893; --clay:#E0864B;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--field);color:var(--cream);
+  font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;line-height:1.05;margin:0;letter-spacing:-.03em}
+.wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+
+/* header */
+.top{padding:34px 0 0}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{font-family:'Bricolage Grotesque';font-weight:800;font-size:21px;margin-right:auto}
+.brand span{color:var(--lime)}
+.pill{display:inline-flex;align-items:center;gap:9px;font-family:'IBM Plex Mono',monospace;
+  font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--lime);
+  border:1px solid var(--edge);border-radius:999px;padding:7px 15px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--lime);animation:pulse 2.4s infinite}
+.dot.off{background:var(--clay);animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(200,240,75,.55)}70%{box-shadow:0 0 0 9px rgba(200,240,75,0)}100%{box-shadow:0 0 0 0 rgba(200,240,75,0)}}
+
+h1{font-size:clamp(30px,5vw,54px);margin:30px 0 10px;max-width:16ch}
+h1 em{font-style:normal;color:var(--lime)}
+.lede{color:var(--moss);max-width:52ch;margin:0}
+
+/* live cards */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:22px;padding:22px}
+.k{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--moss)}
+.v{font-family:'Bricolage Grotesque';font-weight:800;font-size:42px;letter-spacing:-.03em;margin-top:8px;line-height:1}
+.v small{font-size:15px;color:var(--moss);margin-left:3px}
+.sub{font-size:12px;color:var(--moss);margin-top:9px;font-family:'IBM Plex Mono',monospace}
+.tube{height:8px;border-radius:999px;background:#0A2013;border:1px solid var(--edge);overflow:hidden;margin-top:12px}
+.fill{height:100%;width:0;background:linear-gradient(90deg,var(--clay),var(--lime));transition:width .8s ease}
+
+/* download panel */
+.panel{background:var(--panel);border:1px solid var(--edge);border-radius:26px;padding:26px;margin-top:44px}
+.panel h2{font-size:24px;margin-bottom:6px}
+.panel p{color:var(--moss);margin:0 0 20px;font-size:14px}
+.row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+label{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--moss);margin-bottom:7px}
+.inp{width:100%;background:#0B1F14;border:1px solid var(--edge);color:var(--cream);
+  border-radius:12px;padding:11px 13px;outline:none}
+.inp:focus{border-color:var(--lime);box-shadow:0 0 0 3px rgba(200,240,75,.14)}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+button{border-radius:999px;padding:11px 20px;font-weight:600;font-size:14px;cursor:pointer;
+  border:1px solid var(--edge);background:transparent;color:var(--cream);font-family:inherit}
+button:hover{border-color:var(--lime);background:rgba(200,240,75,.08)}
+button.solid{background:var(--lime);color:#0A2013;border-color:var(--lime)}
+button.solid:hover{background:#E4FBA4}
+.msg{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--moss);margin-top:16px}
+.msg.err{color:var(--clay)}
+
+/* table */
+.tbl{overflow:auto;border:1px solid var(--edge);border-radius:20px;margin-top:22px;max-height:480px}
+table{border-collapse:collapse;width:100%;font-family:'IBM Plex Mono',monospace;font-size:13px}
+th{position:sticky;top:0;background:var(--panel-2);color:var(--moss);text-align:left;padding:12px 14px;
+  font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;
+  border-bottom:1px solid var(--edge)}
+td{padding:10px 14px;border-bottom:1px solid rgba(37,83,54,.5);white-space:nowrap}
+tr:hover td{background:rgba(200,240,75,.05)}
+.num{color:#E4FBA4}
+.empty{padding:44px;text-align:center;color:var(--moss)}
+.empty strong{display:block;color:var(--cream);font-family:'Bricolage Grotesque';font-size:18px;margin-bottom:6px}
+
+footer{margin-top:60px;padding:26px 0 40px;border-top:1px solid var(--edge);
+  color:var(--moss);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media(max-width:900px){.grid,.row{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.grid,.row{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="bar">
+      <div class="brand">Agro<span>Sense</span></div>
+      <div class="pill"><span class="dot" id="dot"></span><span id="live">connecting</span></div>
+    </div>
+
+    <h1>Your plot, reading <em>itself</em>.</h1>
+    <p class="lede">Light, air and soil from the field node, refreshed every few seconds.
+       Take any stretch of it away as a spreadsheet.</p>
+  </div>
+
+  <!-- LIVE -->
+  <div class="grid">
+    <div class="card">
+      <div class="k">Sunlight</div>
+      <div class="v" id="vLux">—<small>lx</small></div>
+      <div class="sub" id="sLux">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Air temperature</div>
+      <div class="v" id="vTemp">—<small>°C</small></div>
+      <div class="sub" id="sTemp">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Humidity</div>
+      <div class="v" id="vHum">—<small>%</small></div>
+      <div class="sub">relative</div>
+    </div>
+    <div class="card">
+      <div class="k">Soil water</div>
+      <div class="v" id="vSoil">—<small>%</small></div>
+      <div class="tube"><div class="fill" id="fill"></div></div>
+      <div class="sub" id="sSoil">—</div>
+    </div>
+  </div>
+
+  <!-- DOWNLOAD -->
+  <div class="panel">
+    <h2>Download the dataset</h2>
+    <p>Pick a window, load it, then save it as Excel or CSV.</p>
+
+    <div class="row">
+      <div>
+        <label for="dev">Node</label>
+        <input class="inp" id="dev" value="agrosense-01">
+      </div>
+      <div>
+        <label for="from">From</label>
+        <input class="inp" id="from" type="datetime-local">
+      </div>
+      <div>
+        <label for="to">To</label>
+        <input class="inp" id="to" type="datetime-local">
+      </div>
+      <div>
+        <label for="lim">Max rows</label>
+        <select class="inp" id="lim">
+          <option>500</option><option selected>2000</option>
+          <option>10000</option><option>50000</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="solid" onclick="load()">Load readings</button>
+      <button onclick="quick(1)">Last hour</button>
+      <button onclick="quick(24)">Last 24 hours</button>
+      <button onclick="quick(168)">Last 7 days</button>
+      <button onclick="save('xlsx')">Download Excel</button>
+      <button onclick="save('csv')">Download CSV</button>
+    </div>
+
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="tbl">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Recorded</th><th>Lux</th><th>Temp °C</th><th>Hum %</th>
+        <th>Soil raw</th><th>Soil %</th><th>RSSI</th><th>Uptime s</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <div>AgroSense field node · ESP32 + Supabase</div>
+    <div id="clock">—</div>
+  </footer>
+</div>
+
+<script>
+const URL_ = "https://ekzvuqxnhrxalcvyjxdd.supabase.co";
+const KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrenZ1cXhuaHJ4YWxjdnlqeGRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4NzU4NTIsImV4cCI6MjEwMjQ1MTg1Mn0.bAENZpVEwtBcOaYTBL_0tEQjQq1U4tWZKpfVpFGkNBU";
+const H = { apikey: KEY, Authorization: "Bearer " + KEY };
+
+let rows = [];
+
+async function get(q) {
+  const r = await fetch(URL_ + "/rest/v1/" + q, { headers: H });
+  if (!r.ok) throw new Error(r.status + " " + await r.text());
+  return r.json();
+}
+const n1 = v => v == null ? "—" : Number(v).toFixed(1);
+const n0 = v => v == null ? "—" : Math.round(v);
+const t  = iso => iso ? new Date(iso).toLocaleString() : "—";
+
+function say(m, err) {
+  const el = document.getElementById("msg");
+  el.textContent = m;
+  el.className = "msg" + (err ? " err" : "");
+}
+
+/* ---------- live ---------- */
+async function live() {
+  try {
+    const dev = document.getElementById("dev").value.trim();
+    const q = "readings?select=*&order=recorded_at.desc&limit=1"
+            + (dev ? "&device_id=eq." + encodeURIComponent(dev) : "");
+    const d = (await get(q))[0];
+    if (!d) { document.getElementById("live").textContent = "no readings yet"; return; }
+
+    document.getElementById("vLux").innerHTML  = n0(d.lux)          + "<small>lx</small>";
+    document.getElementById("vTemp").innerHTML = n1(d.temperature)  + "<small>°C</small>";
+    document.getElementById("vHum").innerHTML  = n0(d.humidity)     + "<small>%</small>";
+    document.getElementById("vSoil").innerHTML = n0(d.soil_percent) + "<small>%</small>";
+    document.getElementById("fill").style.width = (d.soil_percent ?? 0) + "%";
+
+    document.getElementById("sLux").textContent =
+      d.lux == null ? "no reading" : d.lux < 200 ? "low light" : d.lux > 10000 ? "full sun" : "daylight";
+    document.getElementById("sTemp").textContent =
+      d.temperature == null ? "no reading" : d.temperature > 38 ? "above threshold" : "normal";
+    document.getElementById("sSoil").textContent =
+      d.soil_percent == null ? "no reading" : d.soil_percent < 30 ? "needs water" : "moisture ok";
+
+    const age = (Date.now() - new Date(d.recorded_at)) / 1000;
+    const fresh = age < 120;
+    document.getElementById("dot").className = "dot" + (fresh ? "" : " off");
+    document.getElementById("live").textContent = fresh
+      ? "live · " + new Date(d.recorded_at).toLocaleTimeString()
+      : "last seen " + t(d.recorded_at);
+  } catch (e) {
+    document.getElementById("dot").className = "dot off";
+    document.getElementById("live").textContent = "offline";
+  }
+}
+
+/* ---------- history ---------- */
+function quick(h) {
+  const f = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+  document.getElementById("from").value = f(new Date(Date.now() - h * 36e5));
+  document.getElementById("to").value   = f(new Date());
+  load();
+}
+
+async function load() {
+  const dev = document.getElementById("dev").value.trim();
+  const from = document.getElementById("from").value;
+  const to   = document.getElementById("to").value;
+  const lim  = document.getElementById("lim").value;
+
+  let q = "readings?select=*&order=recorded_at.desc&limit=" + lim;
+  if (dev)  q += "&device_id=eq." + encodeURIComponent(dev);
+  if (from) q += "&recorded_at=gte." + encodeURIComponent(new Date(from).toISOString());
+  if (to)   q += "&recorded_at=lte." + encodeURIComponent(new Date(to).toISOString());
+
+  say("Loading…");
+  try {
+    rows = await get(q);
+    const b = document.getElementById("body");
+    b.innerHTML = "";
+    rows.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${i+1}</td><td>${t(r.recorded_at)}</td>
+        <td class="num">${n0(r.lux)}</td><td class="num">${n1(r.temperature)}</td>
+        <td class="num">${n0(r.humidity)}</td><td class="num">${r.soil_raw ?? "—"}</td>
+        <td class="num">${n1(r.soil_percent)}</td><td class="num">${r.rssi ?? "—"}</td>
+        <td class="num">${r.uptime_s ?? "—"}</td>`;
+      b.appendChild(tr);
+    });
+    if (!rows.length)
+      b.innerHTML = `<tr><td colspan="9"><div class="empty"><strong>Nothing in this window</strong>
+        Widen the dates, or check the node is posting.</div></td></tr>`;
+    say(rows.length + " readings loaded at " + new Date().toLocaleTimeString());
+  } catch (e) {
+    say("Could not load: " + e.message, true);
+  }
+}
+
+/* ---------- export ---------- */
+function save(kind) {
+  if (!rows.length) { say("Load a window first, then download.", true); return; }
+
+  const sheet = rows.map(r => ({
+    "Recorded (local)": t(r.recorded_at),
+    "Recorded (UTC)":   r.recorded_at,
+    "Node":             r.device_id,
+    "Lux":              r.lux,
+    "Temperature C":    r.temperature,
+    "Humidity %":       r.humidity,
+    "Soil raw":         r.soil_raw,
+    "Soil %":           r.soil_percent,
+    "RSSI dBm":         r.rssi,
+    "Uptime s":         r.uptime_s
+  }));
+
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  const name = "agrosense_" + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate())
+             + "_" + p(d.getHours()) + p(d.getMinutes());
+  const ws = XLSX.utils.json_to_sheet(sheet);
+
+  if (kind === "csv") {
+    const blob = new Blob(["\uFEFF" + XLSX.utils.sheet_to_csv(ws)], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name + ".csv"; a.click();
+    URL.revokeObjectURL(a.href);
+  } else {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "readings");
+    XLSX.writeFile(wb, name + ".xlsx");
+  }
+  say("Saved " + rows.length + " rows.");
+}
+
+/* ---------- boot ---------- */
+quick(24);
+live();
+setInterval(live, 5000);
+setInterval(() => document.getElementById("clock").textContent = new Date().toLocaleTimeString(), 1000);
+</script>
+</body>
+</html>
